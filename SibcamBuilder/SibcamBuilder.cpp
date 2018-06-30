@@ -55,8 +55,9 @@ int main(int argc, char *argv[]) {
 			build_frames(num_frames, frame_buff);
 			build_sibcam(num_frames, data_buff, frame_buff, argc);
 
-			delete[] data_buff;
-			delete[] frame_buff;
+			free(data);
+			free(data_buff);
+			free(frame_buff);
 		}
 		else {
 			printf("unexpected EOF");
