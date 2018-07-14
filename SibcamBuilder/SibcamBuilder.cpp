@@ -1,10 +1,9 @@
 #include "stdafx.h"
-//int to_quaternion(double, double, double);
 using namespace std;
 
 int main(int argc, char *argv[]) {
 	if (argc < 2) {
-		printf("Usage: sibcambuilder [-f] <path>\n");
+		printf("Usage: SibcamBuilder [-f] <path>\n");
 		exit(0);
 	}
 	int err;
@@ -15,7 +14,7 @@ int main(int argc, char *argv[]) {
 	if (argc == 3) {
 		argfile = 2;
 		if (strcmp(argv[1], "-f")) {
-			printf("Usage: sibcambuilder <path> [-f]\n");
+			printf("Usage: SibcamBuilder [-f] <path>\n");
 			exit(0);
 		}
 	}
@@ -46,6 +45,7 @@ int main(int argc, char *argv[]) {
 				}
 				else {
 					printf("unexpected EOF");
+					free(data);
 					exit(0);
 				}
 			}
@@ -146,9 +146,9 @@ int build_sibcam(const int &num_frames, float * buffer_data, int * buffer_frames
 	int err;
 	FILE * output;
 	char err_buff[256];
-	struct header header;
-	struct cam_setup cam;
-	struct fov fov;
+	header header;
+	cam_setup cam;
+	fov fov;
 	if ((err = fopen_s(&output, "camera_win32.sibcam", "w+b")) != 0) {
 		strerror_s(err_buff, 256, err);
 		fprintf(stderr, err_buff);
@@ -164,15 +164,10 @@ int build_sibcam(const int &num_frames, float * buffer_data, int * buffer_frames
 		cam.ptr_fov = sizeof(header) + sizeof(cam) + 4 * 8 * num_frames;
 		cam.num_frames = num_frames;
 		if (argc == 3) {
-			cam.cam_type0 = 'F';
-			cam.cam_type1 = 'r';
-			cam.cam_type2 = 'e';
-			cam.cam_type3 = 'e';
-			cam.cam_type4 = 'C';
-			cam.cam_type5 = 'a';
-			cam.cam_type6 = 'm';
-			cam.cam_type7 = '0';
-			cam.cam_type8 = '1';
+			char temp[10] = "FreeCam01";
+			for (int i = 0; i < 9; i++) {
+				cam.cam_type[i] = temp[i];
+			}
 		}
 		fwrite(&cam, sizeof(cam_setup), 1, output);
 		fwrite(buffer_frames, sizeof(int), num_frames * 8, output);
@@ -223,23 +218,20 @@ int build_sibcam(const int &num_frames, float * buffer_data, int * buffer_frames
 }*/
 
 int to_euler_angles(const quaternion &q, float &pitch, float &roll, float &yaw) {
-	// roll (x-axis rotation)
 	double sinr = +2.0 * (q.w * q.x + q.y * q.z);
 	//double cosr = q.w * q.w - q.x * q.x + q.y * q.y - q.z * q.z;
 	double cosr = +1.0 - 2.0 * (q.x * q.x + q.y * q.y);
 	roll = (float)atan2(sinr, cosr);
-
-	// pitch (y-axis rotation)
+	
 	double sinp = +2.0 * (q.w * q.y + q.z * q.x);
 	if (fabs(sinp) >= 1) {
-		pitch = (float)copysign(M_PI / 2, sinp)+M_PI/2; // use 90 degrees if out of range
+		pitch = (float)copysign(M_PI / 2, sinp)+M_PI/2;
 	}
 	else {
 		//pitch = (float)copysign(M_PI / 2, sinp);
 		pitch = (float)asin(sinp)+M_PI/2;
 	}
-
-	// yaw (z-axis rotation)
+	
 	double siny = +2.0 * (q.w * q.z + q.x * q.y);
 	double cosy = +1.0 - 2.0 * (q.y * q.y + q.z * q.z);
 	yaw = (float)atan2(siny, cosy)+M_PI;

@@ -8,6 +8,7 @@
 #include "targetver.h"
 
 #include <stdio.h>
+#include <stdint.h>
 #include <tchar.h>
 #include <stdlib.h>
 #include <errno.h>
@@ -30,80 +31,69 @@ struct frame_data {
 	struct quaternion q;
 };
 
-struct header {
-	int unk0 = 1;
-	int unk1 = 8;
-	int unk2 = 0x0c;
-	int unk3 = 0x20051014;
-	int pad0 = 0;
-	int last_frame = 0;
-	int ptr_ptr_cam = 0x84;
-	int unk4 = 1;
-	int ptr_frame_data = 0;
-	int ptr_end_frame_data = 0;
-	int num_frame_data = 0;
-	int pad1 = 0;
-	int ptr_eof = 0;
-	int pad2[20] = { 0 };
-	int ptr_cam = 0x0178;
-	int unk5 = 3;
-};
+typedef struct {
+	uint32_t unk0 = 1;
+	uint32_t unk1 = 8;
+	uint32_t unk2 = 0x0c;
+	uint32_t unk3 = 0x20051014;
+	uint32_t pad0 = 0;
+	uint32_t last_frame = 0;
+	uint32_t ptr_ptr_cam = 0x84;
+	uint32_t unk4 = 1;
+	uint32_t ptr_frame_data = 0;
+	uint32_t ptr_end_frame_data = 0;
+	uint32_t num_frame_data = 0;
+	uint32_t pad1 = 0;
+	uint32_t ptr_eof = 0;
+	uint32_t pad2[20] = { 0 };
+	uint32_t ptr_cam = 0x0178;
+	uint32_t unk5 = 3;
+} header;
 
 //some values are arbitrary, since overwritten on frame 0
-struct cam_setup {
-	int pad0 = 0xffff0000;
-	int pad1 = 0xffffffff;
-	int pad2 = 0xffffffff;
-	int pos_x = 0x43b1a0b4;
-	int pos_y = 0xc1e45bb2;
-	int pos_z = 0xc2a2696e;
-	int rot_x = 0xbfba177c;
-	int rot_y = 0x3ff47f30;
-	int rot_z = 0xbdc4c7a6;
-	float scale_x = 1;
-	float scale_y = 1;
-	float scale_z = 1;
-	int ptr_ptr_frames = 0x184;
-	int pad3 = 0;
-	int pad4 = 0;
-	int ptr_fov = 0;
-	int pad5[43] = { 0 };
-	char cam_type0 = 'C';
-	char cam_type1 = 'a';
-	char cam_type2 = 'm';
-	char cam_type3 = 'e';
-	char cam_type4 = 'r';
-	char cam_type5 = 'a';
-	char cam_type6 = '0';
-	char cam_type7 = '2';
-	char cam_type8 = 0;
-	char cam_type9 = 0;
-	char cam_type10 = 0;
-	char cam_type11 = 0;
-	int ptr_frames = 0x1ac;
-	int num_frames = 0;
-	int unk3 = 3;
-	int rot_x_1 = rot_x;
-	int rot_y_1 = rot_y;
-	int rot_z_1 = rot_z;
-	int rot_x_2 = rot_x;
-	int rot_y_2 = rot_y;
-	int rot_z_2 = rot_z;
-	int pad6 = 0;
-};
+typedef struct {
+	uint32_t pad0 = 0xffff0000;
+	uint32_t pad1 = 0xffffffff;
+	uint32_t pad2 = 0xffffffff;
+	float pos_x = 355.255f;
+	float pos_y = -28.5448f;
+	float pos_z = -81.2059f;
+	float rot_x = -1.45384f;
+	float rot_y = 1.91013f;
+	float rot_z = -0.0960839f;
+	float scale_x = 1.0f;
+	float scale_y = 1.0f;
+	float scale_z = 1.0f;
+	uint32_t ptr_ptr_frames = 0x184;
+	uint32_t pad3 = 0;
+	uint32_t pad4 = 0;
+	uint32_t ptr_fov = 0;
+	uint32_t pad5[43] = { 0 };
+	char cam_type[12] = "Camera02";
+	uint32_t ptr_frames = 0x1ac;
+	uint32_t num_frames = 0;
+	uint32_t unk3 = 3;
+	float rot_x_1 = rot_x;
+	float rot_y_1 = rot_y;
+	float rot_z_1 = rot_z;
+	float rot_x_2 = rot_x;
+	float rot_y_2 = rot_y;
+	float rot_z_2 = rot_z;
+	uint32_t pad6 = 0;
+} cam_setup;
 
 //hardcoded to default setting for now, no per-frame changes after frame 0
-struct fov {
+typedef struct {
 	//int def_fov = 0x3f83fcfc;
-	int def_fov = 0x3f2a25c2;
-	int ptr_fov_data = 0;
-	int num_fov = 1;
-	int pad0 = 0;
-	int fov_frame = 0;
-	int frame_fov = def_fov;
-	int unk0 = 0;
-	int unk1 = 0;
-};
+	uint32_t def_fov = 0x3f2a25c2;
+	uint32_t ptr_fov_data = 0;
+	uint32_t num_fov = 1;
+	uint32_t pad0 = 0;
+	uint32_t fov_frame = 0;
+	uint32_t frame_fov = def_fov;
+	uint32_t unk0 = 0;
+	uint32_t unk1 = 0;
+} fov;
 
 int build_frame_data(const int&, const frame_data&, float*);
 int build_frames(const int&, int*);
