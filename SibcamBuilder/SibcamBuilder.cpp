@@ -1,21 +1,32 @@
 #include "stdafx.h"
-using namespace std;
+#pragma comment(lib, "Ws2_32.lib")
+
+using std::free;
 
 int main(int argc, char *argv[]) {
 	if (argc < 2) {
-		printf("Usage: SibcamBuilder [-f] <path>\n");
+		printf("Usage: SibcamBuilder [-c] <path>\n");
 		exit(0);
 	}
 	int err;
 	char err_buff[256];
 	FILE * havok;
+	FILE * xaf;
 	char buffer[256];
 	int argfile = 1;
+	bool freecam = false;
+	bool has_fov = false;
+	bool for_console = false;
+	fov_data* fov_list;
+
 	if (argc == 3) {
 		argfile = 2;
-		if (strcmp(argv[1], "-f")) {
-			printf("Usage: SibcamBuilder [-f] <path>\n");
+		if (strcmp(argv[1], "-c")) {
+			printf("Usage: SibcamBuilder [-c] <path>\n");
 			exit(0);
+		}
+		else {
+			for_console = true;
 		}
 	}
 	if ((err = fopen_s(&havok, argv[argfile], "r")) != 0) {
@@ -30,11 +41,13 @@ int main(int argc, char *argv[]) {
 			}
 			else {
 				printf("unexpected EOF");
+				fclose(havok);
 				exit(0);
 			}
 		}
 		if (fgets(buffer, 256, havok) != NULL) {
 			int num_frames;
+			int num_fov = 1;
 			sscanf_s(buffer, "%*s FrameNumber=\"%d\"", &num_frames);
 			frame_data * data = (frame_data*)malloc(sizeof(frame_data)*num_frames);
 			//read transformations for every frame
@@ -46,21 +59,111 @@ int main(int argc, char *argv[]) {
 				else {
 					printf("unexpected EOF");
 					free(data);
+					fclose(havok);
 					exit(0);
 				}
 			}
+			
+			size_t path_length = strlen(argv[argfile]);
+			char* xaf_path = (char*)malloc(sizeof(char)*path_length+1);
+			strcpy_s(xaf_path, (path_length+1)*sizeof(char), argv[argfile]);
+			xaf_path[path_length - 9] = '\0';
+			strcat_s(xaf_path, path_length-5, "xaf");
+			
+			char type[20];
+			int frame_rate = 0;
+			int ticks = 0;
+
+			if (!fopen_s(&xaf, xaf_path, "r")) {
+				fgets(buffer, sizeof(buffer), xaf);
+				buffer[0] = '\0';
+				if (fgets(buffer, sizeof(buffer), xaf)) {
+					if (sscanf_s(buffer, " <SceneInfo %*s startTick=\"0\" %*s frameRate=\"%i\" ticksPerFrame=\"%i\"", &frame_rate, &ticks)) {
+						buffer[0] = '\0';
+						while (fgets(buffer, sizeof(buffer), xaf)) {
+							if (sscanf_s(buffer, " <Controller name=\"%*s \\ Object (%s Camera) \\ FOV\"", type, 20)) {
+								if (strcmp(type, "Free")) {
+									freecam = true;
+								}
+								buffer[0] = '\0';
+								if (fgets(buffer, sizeof(buffer), xaf)) {
+									if (sscanf_s(buffer, " <Keys count=\"%i\"", &num_fov)) {
+										fov_list = (fov_data*)malloc(sizeof(fov_data)*num_fov);
+										int key_num;
+										float fov;
+										float tan_in;
+										float tan_out;
+										for (int i = 0; i < num_fov; i++) {
+											buffer[0] = '\0';
+											if (fgets(buffer, sizeof(buffer), xaf)) {
+												if (sscanf_s(buffer, " <Key t=\"%i\" %*s %*s %*s %*s %*s %*s %*s %*s v=\"%f \" inTanVal=\"%f \" outTanVal=\"%f \"", &key_num, &fov, &tan_in, &tan_out)) {
+													has_fov = true;
+													if (ticks) {
+														fov_list[i].frame_num = key_num / ticks;
+													}
+													else {
+														free(fov_list);
+														has_fov = false;
+														num_fov = 1;
+														break;
+													}
+													fov_list[i].frame_fov = fov;
+													fov_list[i].tan_in = tan_in;
+													fov_list[i].tan_out = tan_out;
+												}
+												else {
+													free(fov_list);
+													has_fov = false;
+													num_fov = 1;
+													break;
+												}
+											}
+											else {
+												free(fov_list);
+												has_fov = false;
+												num_fov = 1;
+												break;
+											}
+										}
+									}
+								}
+								break;
+							}
+						}
+					}
+				}
+				
+				fclose(xaf);
+			}
+
 			float * data_buff = (float*)malloc(sizeof(float) * 12 * (num_frames-1) + 6 * 4);
 			int * frame_buff = (int*)malloc(sizeof(int) * 8 * num_frames);
 			build_frame_data(num_frames, *data, data_buff);
 			build_frames(num_frames, frame_buff);
-			build_sibcam(num_frames, data_buff, frame_buff, argc);
 
+			if (!has_fov) {
+				fov_list = (fov_data*)malloc(sizeof(fov_data));
+				fov_list[0].frame_num = 0;
+				fov_list[0].frame_fov = 0;
+			}
+
+			if (for_console) {
+				build_sibcam_console(num_frames, num_fov, data_buff, frame_buff, fov_list, freecam);
+			}
+			else {
+				build_sibcam(num_frames, num_fov, data_buff, frame_buff, *fov_list, freecam);
+			}
+
+			free(fov_list);
 			free(data);
 			free(data_buff);
 			free(frame_buff);
+			free(xaf_path);
+			fclose(havok);
 		}
 		else {
 			printf("unexpected EOF");
+			fclose(havok);
 			exit(0);
 		}
 	}
@@ -142,28 +245,28 @@ int build_frames(const int &num_frames, int * buffer) {
 	return 0;
 }
 
-int build_sibcam(const int &num_frames, float * buffer_data, int * buffer_frames, const int &argc) {
+int build_sibcam(const int &num_frames, const int &num_fov, float * buffer_data, int * buffer_frames, const fov_data &fov_list, const bool &freecam) {
 	int err;
 	FILE * output;
 	char err_buff[256];
 	header header;
 	cam_setup cam;
-	fov fov;
+	fov_header fov;
 	if ((err = fopen_s(&output, "camera_win32.sibcam", "w+b")) != 0) {
 		strerror_s(err_buff, 256, err);
 		fprintf(stderr, err_buff);
-		exit(0);
+		return 1;
 	}
 	else {
 		header.last_frame = num_frames - 1;
-		header.ptr_frame_data = sizeof(header) + sizeof(cam) + sizeof(fov) + 4*8*num_frames;
+		header.ptr_frame_data = sizeof(header) + sizeof(cam) + sizeof(fov) + sizeof(fov_data) * num_fov + 4*8*num_frames;
 		header.ptr_end_frame_data = header.ptr_frame_data + 4 * 12 * (num_frames - 1) + 6 * 4;
 		header.num_frame_data = (header.ptr_end_frame_data - header.ptr_frame_data)/12;
 		header.ptr_eof = header.ptr_end_frame_data;
 		fwrite(&header, sizeof(header), 1, output);
 		cam.ptr_fov = sizeof(header) + sizeof(cam) + 4 * 8 * num_frames;
 		cam.num_frames = num_frames;
-		if (argc == 3) {
+		if (freecam) {
 			char temp[10] = "FreeCam01";
 			for (int i = 0; i < 9; i++) {
 				cam.cam_type[i] = temp[i];
@@ -172,8 +275,118 @@ int build_sibcam(const int &num_frames, float * buffer_data, int * buffer_frames
 		fwrite(&cam, sizeof(cam_setup), 1, output);
 		fwrite(buffer_frames, sizeof(int), num_frames * 8, output);
 		fov.ptr_fov_data = sizeof(header) + sizeof(cam) + 4 * 8 * num_frames + 4 * 4;
+		fov.num_fov = num_fov;
+		fov.def_fov = (&fov_list)[0].frame_fov;
 		fwrite(&fov, sizeof(fov), 1, output);
+		fwrite(&fov_list, sizeof(fov_data), num_fov, output);
 		fwrite(buffer_data, sizeof(float), 12 * (num_frames-1) + 6, output);
+
+		//pad out the file
+		int num_pads = (16 - (header.ptr_end_frame_data % 16)) / 4;
+		if (num_pads) {
+			int * padding = (int*)malloc(sizeof(int)*num_pads);
+			for (int i = 0; i < num_pads; i++) {
+				padding[i] = 0;
+			}
+			fwrite(padding, sizeof(int), num_pads, output);
+			free(padding);
+		}
+		//fwrite(buffer, sizeof(float), num_frames * 8, output);
+	}
+	fclose(output);
+	return 0;
+}
+
+int build_sibcam_console(const int &num_frames, const int &num_fov, float * buffer_data, int * buffer_frames, fov_data * fov_list, const bool &freecam) {
+	int err;
+	FILE * output;
+	char err_buff[256];
+	header header;
+	cam_setup cam;
+	fov_header fov;
+	if ((err = fopen_s(&output, "camera.sibcam", "w+b")) != 0) {
+		strerror_s(err_buff, 256, err);
+		fprintf(stderr, err_buff);
+		return 1;
+	}
+	else {
+		header.last_frame = num_frames - 1;
+		header.ptr_frame_data = sizeof(header) + sizeof(cam) + sizeof(fov) + sizeof(fov_data) * num_fov + 4 * 8 * num_frames;
+		header.ptr_end_frame_data = header.ptr_frame_data + 4 * 12 * (num_frames - 1) + 6 * 4;
+		header.num_frame_data = (header.ptr_end_frame_data - header.ptr_frame_data) / 12;
+		header.ptr_eof = header.ptr_end_frame_data;
+
+		header.unk0 = *(uint32_t*)little_to_big((long*)&header.unk0);
+		header.unk1 = *(uint32_t*)little_to_big((long*)&header.unk1);
+		header.unk2 = *(uint32_t*)little_to_big((long*)&header.unk2);
+		header.unk3 = *(uint32_t*)little_to_big((long*)&header.unk3);
+		header.last_frame = *(uint32_t*)little_to_big((long*)&header.last_frame);
+		header.ptr_ptr_cam = *(uint32_t*)little_to_big((long*)&header.ptr_ptr_cam);
+		header.unk4 = *(uint32_t*)little_to_big((long*)&header.unk4);
+		header.ptr_frame_data = *(uint32_t*)little_to_big((long*)&header.ptr_frame_data);
+		header.ptr_end_frame_data = *(uint32_t*)little_to_big((long*)&header.ptr_end_frame_data);
+		header.num_frame_data = *(uint32_t*)little_to_big((long*)&header.num_frame_data);
+		header.ptr_eof = *(uint32_t*)little_to_big((long*)&header.ptr_eof);
+		header.ptr_cam = *(uint32_t*)little_to_big((long*)&header.ptr_cam);
+		header.unk5 = *(uint32_t*)little_to_big((long*)&header.unk5);
+
+		fwrite(&header, sizeof(header), 1, output);
+
+		cam.ptr_fov = sizeof(header) + sizeof(cam) + 4 * 8 * num_frames;
+		cam.num_frames = num_frames;
+
+		cam.pos_x = *(float*)little_to_big((long*)&cam.pos_x);
+		cam.pos_y = *(float*)little_to_big((long*)&cam.pos_y);
+		cam.pos_z = *(float*)little_to_big((long*)&cam.pos_z);
+		cam.rot_x = *(float*)little_to_big((long*)&cam.rot_x);
+		cam.rot_y = *(float*)little_to_big((long*)&cam.rot_y);
+		cam.rot_z = *(float*)little_to_big((long*)&cam.rot_z);
+		cam.scale_x = *(float*)little_to_big((long*)&cam.scale_x);
+		cam.scale_y = *(float*)little_to_big((long*)&cam.scale_y);
+		cam.scale_z = *(float*)little_to_big((long*)&cam.scale_z);
+		cam.ptr_ptr_frames = *(uint32_t*)little_to_big((long*)&cam.ptr_ptr_frames);
+		cam.ptr_fov = *(uint32_t*)little_to_big((long*)&cam.ptr_fov);
+		cam.ptr_frames = *(uint32_t*)little_to_big((long*)&cam.ptr_frames);
+		cam.num_frames = *(uint32_t*)little_to_big((long*)&cam.num_frames);
+		cam.unk3 = *(uint32_t*)little_to_big((long*)&cam.unk3);
+		cam.rot_x_1 = *(float*)little_to_big((long*)&cam.rot_x_1);
+		cam.rot_y_1 = *(float*)little_to_big((long*)&cam.rot_y_1);
+		cam.rot_z_1 = *(float*)little_to_big((long*)&cam.rot_z_1);
+		cam.rot_x_2 = *(float*)little_to_big((long*)&cam.rot_x_2);
+		cam.rot_y_2 = *(float*)little_to_big((long*)&cam.rot_y_2);
+		cam.rot_z_2 = *(float*)little_to_big((long*)&cam.rot_z_2);
+
+		fwrite(&cam, sizeof(cam_setup), 1, output);
+
+		for (int i = 0; i < num_frames * 8; i++) {
+			buffer_frames[i] = *(uint32_t*)little_to_big((long*)&buffer_frames[i]);
+		}
+
+		fwrite(buffer_frames, sizeof(int), num_frames * 8, output);
+		fov.ptr_fov_data = sizeof(header) + sizeof(cam) + 4 * 8 * num_frames + 4 * 4;
+		fov.num_fov = num_fov;
+		fov.def_fov = fov_list[0].frame_fov;
+
+		fov.def_fov = *(float*)little_to_big((long*)&fov.def_fov);
+		fov.ptr_fov_data = *(uint32_t*)little_to_big((long*)&fov.ptr_fov_data);
+		fov.num_fov = *(uint32_t*)little_to_big((long*)&fov.num_fov);
+
+		fwrite(&fov, sizeof(fov), 1, output);
+
+		for (int i = 0; i < num_fov; i++) {
+			fov_list[i].frame_num = *(uint32_t*)little_to_big((long*)&fov_list[i].frame_num);
+			fov_list[i].frame_fov = *(float*)little_to_big((long*)&fov_list[i].frame_fov);
+			fov_list[i].tan_in = *(float*)little_to_big((long*)&fov_list[i].tan_in);
+			fov_list[i].tan_out = *(float*)little_to_big((long*)&fov_list[i].tan_out);
+		}
+
+		fwrite(fov_list, sizeof(fov_data), num_fov, output);
+
+		for (int i = 0; i < 12 * (num_frames - 1) + 6; i++) {
+			buffer_data[i] = *(float*)little_to_big((long*)&buffer_data[i]);
+		}
+
+		fwrite(buffer_data, sizeof(float), 12 * (num_frames - 1) + 6, output);
 
 		//pad out the file
 		int num_pads = (16 - (header.ptr_end_frame_data % 16)) / 4;
@@ -236,6 +449,11 @@ int to_euler_angles(const quaternion &q, float &pitch, float &roll, float &yaw) 
 	double cosy = +1.0 - 2.0 * (q.y * q.y + q.z * q.z);
 	yaw = (float)atan2(siny, cosy)+M_PI;
 	return 0;
+}
+
+long* little_to_big(long* value) {
+	long temp = htonl(*(long*)value);
+	return &temp;
 }
 
 /*int to_quaternion(double roll, double pitch, double yaw)

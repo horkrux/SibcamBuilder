@@ -16,6 +16,7 @@
 #include <math.h>
 #define _USE_MATH_DEFINES
 #include <cmath> 
+#include <winsock2.h>
 
 struct quaternion {
 	double x;
@@ -82,20 +83,24 @@ typedef struct {
 	uint32_t pad6 = 0;
 } cam_setup;
 
-//hardcoded to default setting for now, no per-frame changes after frame 0
 typedef struct {
 	//int def_fov = 0x3f83fcfc;
-	uint32_t def_fov = 0x3f2a25c2;
+	float def_fov = 0;
 	uint32_t ptr_fov_data = 0;
 	uint32_t num_fov = 1;
-	uint32_t pad0 = 0;
-	uint32_t fov_frame = 0;
-	uint32_t frame_fov = def_fov;
-	uint32_t unk0 = 0;
-	uint32_t unk1 = 0;
-} fov;
+	uint32_t pad = 0;
+} fov_header;
+
+typedef struct {
+	uint32_t frame_num;
+	float frame_fov;
+	float tan_in = 0;
+	float tan_out = 0;
+} fov_data;
 
 int build_frame_data(const int&, const frame_data&, float*);
 int build_frames(const int&, int*);
-int build_sibcam(const int&, float*, int*, const int&);
+int build_sibcam(const int&, const int&, float*, int*, const fov_data&, const bool&);
+int build_sibcam_console(const int&, const int&, float*, int*, fov_data*, const bool&);
 int to_euler_angles(const quaternion&, float&, float&, float&);
+long* little_to_big(long*);
